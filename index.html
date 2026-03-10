@@ -192,6 +192,10 @@
             const [bulanPilihan, setBulanPilihan] = React.useState(new Date().getMonth());
             const [tahunPilihan, setTahunPilihan] = React.useState(new Date().getFullYear());
             const [loading, setLoading] = React.useState(false);
+            
+            // State baru untuk kawal mod kemaskini (Lock / Unlock form)
+            const [isEditingMod, setIsEditingMod] = React.useState(true);
+            const forceEditRef = React.useRef(false);
 
             // --- TAMBAHAN UNTUK SENARAI NAMA DINAMIK ---
             const [senaraiPentadbir, setSenaraiPentadbir] = React.useState(SENARAI_PENTADBIR_ASAL);
@@ -327,6 +331,19 @@
                             newDataMingguan[day].tarikh = dateStr;
                         }
                     });
+
+                    // Semak jika perlu kunci (Lock) pengisian untuk tarikh yang dipilih
+                    if (forceEditRef.current) {
+                        setIsEditingMod(true);
+                        forceEditRef.current = false;
+                    } else {
+                        // Jika ada data tersimpan untuk tarikh ini, kunci (Lock) form. Jika tiada, buka (Edit).
+                        if (storedData[tarikh]) {
+                            setIsEditingMod(false);
+                        } else {
+                            setIsEditingMod(true);
+                        }
+                    }
 
                     setDataMingguan(newDataMingguan);
                 } catch (err) {
@@ -490,6 +507,9 @@
                         setToast({ show: true, message: 'Data Berjaya Disimpan ke Peranti!' });
                     }
 
+                    // Kunci borang semula selepas berjaya disimpan
+                    setIsEditingMod(false);
+
                     setTimeout(() => setToast({ show: false, message: '' }), 3000);
                 } catch (err) {
                     console.error("Error saving:", err);
@@ -542,6 +562,7 @@
                 document.body.appendChild(downloadAnchorNode); downloadAnchorNode.click(); downloadAnchorNode.remove();
             };
             const handleEditHarian = (editDate) => {
+                forceEditRef.current = true; // Paksa mod kemaskini apabila ditekan dari tab mingguan
                 setTarikh(editDate); setActiveTab('harian'); window.scrollTo({ top: 0, behavior: 'smooth' });
                 setToast({ show: true, message: `Mod kemaskini untuk ${editDate}` }); setTimeout(() => setToast({ show: false, message: '' }), 3000);
             };
@@ -998,6 +1019,21 @@
                                                 </div>
                                             )}
 
+                                            {!isEditingMod && !isLaporanDisahkan && !printMode && !isWeekend && (
+                                                <div className="bg-blue-50 border-2 border-blue-400 text-blue-800 px-4 py-3 rounded-2xl mb-4 flex flex-col md:flex-row items-center justify-between shadow-sm print-hidden gap-4">
+                                                    <div className="flex items-center">
+                                                        <Lock className="w-6 h-6 mr-3 text-blue-600"/> 
+                                                        <div className="text-left">
+                                                            <p className="font-bold text-sm uppercase">Laporan Telah Disimpan</p>
+                                                            <p className="text-xs font-medium">Laporan untuk tarikh ini telah diisi. Klik butang kemaskini jika anda ingin mengubah data.</p>
+                                                        </div>
+                                                    </div>
+                                                    <button onClick={() => setIsEditingMod(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center transition-colors whitespace-nowrap">
+                                                        <FileEdit className="w-4 h-4 mr-2"/> Kemaskini Laporan
+                                                    </button>
+                                                </div>
+                                            )}
+
                                             <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-indigo-100 print-hidden">
                                                 <div className="flex justify-between items-center mb-3"><h4 className="font-bold text-indigo-800 flex items-center"><Activity className="w-5 h-5 mr-2" /> Status Mingguan</h4><span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold">{['Isnin','Selasa','Rabu','Khamis','Jumaat'].filter(d=>dataMingguan[d].pelapor).length}/5</span></div>
                                                 <div className="flex justify-between">{['Isnin','Selasa','Rabu','Khamis','Jumaat'].map(d=><div key={d} className="flex flex-col items-center"><div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${dataMingguan[d].pelapor?'bg-green-500 border-green-400 text-white':'bg-white border-gray-200 text-gray-300'}`}>{dataMingguan[d].pelapor?<Check className="w-4 h-4"/>:d[0]}</div><span className="text-[10px] font-bold mt-1 uppercase text-gray-400">{d.slice(0,3)}</span></div>)}</div>
@@ -1006,7 +1042,7 @@
                                             {isWeekend ? (
                                                 <Card className="text-center py-12"><AlertTriangle className="w-16 h-16 mx-auto text-orange-400 mb-4"/><h3 className="text-2xl font-bold text-gray-700">Hari Minggu!</h3></Card>
                                             ) : (
-                                                <div className={(isLaporanDisahkan || printMode) ? "opacity-90 pointer-events-none select-none print:opacity-100" : ""}>
+                                                <div className={(isLaporanDisahkan || printMode || !isEditingMod) ? "opacity-90 pointer-events-none select-none print:opacity-100" : ""}>
                                                     
                                                     <div className="grid md:grid-cols-2 gap-6 mb-6">
                                                         <Card className="bg-gradient-to-br from-amber-50 to-orange-50 border-orange-100">
@@ -1040,7 +1076,7 @@
                                                             {CLASSES.map((cls) => {
                                                                 const k = dataMingguan[hariSemasa].kehadiranMurid?.[cls] || {hadir:'', tidakHadir:''};
                                                                 return (
-                                                                    <div key={cls} className="bg-white p-2 rounded-xl border border-blue-100 shadow-sm"><p className="text-[10px] font-bold text-blue-800 uppercase mb-1 truncate">{cls}</p><div className="flex gap-1"><input type="number" placeholder="H" className="w-1/2 p-1 text-center bg-green-50 text-green-700 text-xs font-bold rounded border-none" value={k.hadir} onChange={(e) => updateData(cls, { ...k, hadir: e.target.value }, 'kehadiranMurid', cls)} /><input type="number" placeholder="TH" className="w-1/2 p-1 text-center bg-red-50 text-red-700 text-xs font-bold rounded border-none" value={k.tidakHadir} onChange={(e) => updateData(cls, { ...k, tidakHadir: e.target.value }, 'kehadiranMurid', cls)} /></div></div>
+                                                                    <div key={cls} className="bg-white p-2 rounded-xl border border-blue-100 shadow-sm"><p className="text-[10px] font-bold text-blue-800 uppercase mb-1 truncate">{cls}</p><div className="flex gap-1"><input type="number" placeholder="H" className="w-1/2 p-1 text-center bg-green-50 text-green-700 text-xs font-bold rounded border-none" value={k.hadir} onChange={(e) => updateData('hadir', e.target.value, 'kehadiranMurid', cls)} /><input type="number" placeholder="TH" className="w-1/2 p-1 text-center bg-red-50 text-red-700 text-xs font-bold rounded border-none" value={k.tidakHadir} onChange={(e) => updateData('tidakHadir', e.target.value, 'kehadiranMurid', cls)} /></div></div>
                                                                 )
                                                             })}
                                                         </div>
@@ -1145,7 +1181,7 @@
                                                         <div className="flex justify-between text-center gap-4"><div className="flex-1"><select className="w-full p-2 rounded bg-gray-100 text-sm mb-1" onChange={(e)=>updateData('pelapor',e.target.value)} value={dataMingguan[hariSemasa].pelapor}><option value="">-- Pelapor --</option>{dataMingguan[hariSemasa].guruBertugas.filter(Boolean).map((g,i)=><option key={i}>{g}</option>)}</select><p className="text-[10px] uppercase text-gray-400">Disediakan Oleh</p></div><div className="flex-1"><div className="h-9 mb-1 border-b border-dashed flex items-end justify-center text-xs text-gray-300">{(isLaporanDisahkan || printMode) ? <CheckCircle className="w-4 h-4 text-green-500 mb-1" /> : "Tandatangan"}</div><p className="text-xs font-bold text-gray-600 truncate">{dataMingguan[hariSemasa].pentadbir||"Pentadbir"}</p><p className="text-[10px] uppercase text-gray-400">Disahkan Oleh</p></div></div>
                                                     </Card>
 
-                                                    {!isLaporanDisahkan && !printMode && (
+                                                    {isEditingMod && !isLaporanDisahkan && !printMode && (
                                                         <div className="flex justify-end print-hidden"><button onClick={handleSimpan} className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg flex items-center"><Save className="w-5 h-5 mr-2" /> Simpan Peranti</button></div>
                                                     )}
                                                 </div>
