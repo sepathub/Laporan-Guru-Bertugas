@@ -193,6 +193,7 @@
             const [bulanPilihan, setBulanPilihan] = React.useState(new Date().getMonth());
             const [tahunPilihan, setTahunPilihan] = React.useState(new Date().getFullYear());
             const [loading, setLoading] = React.useState(false);
+            const [syncTrigger, setSyncTrigger] = React.useState(0); // Trigger untuk reload data awan
             
             // State baru untuk kawal mod kemaskini (Lock / Unlock form)
             const [isEditingMod, setIsEditingMod] = React.useState(true);
@@ -206,19 +207,18 @@
             const URL_GAS_SENARAI_NAMA = "https://script.google.com/macros/s/AKfycbwbe4ZKwFQPMvJTGD-fawtZvsybG-ekJ692aFNmaMgWZcpRIrjle2g_UTXTjkzLhyg5tQ/exec"; 
             const URL_GAS_SIMPAN_DATA = "https://script.google.com/macros/s/AKfycbwbe4ZKwFQPMvJTGD-fawtZvsybG-ekJ692aFNmaMgWZcpRIrjle2g_UTXTjkzLhyg5tQ/exec";
 
-            React.useEffect(() => {
+            const syncCloudData = (isManual = false) => {
                 if (URL_GAS_SENARAI_NAMA && URL_GAS_SENARAI_NAMA !== "") {
-                    // Tambah parameter rawak masa (timestamp) untuk elak isu browser 'cache' data lama
+                    if (isManual) setLoading(true);
                     const fetchUrl = `${URL_GAS_SENARAI_NAMA}?t=${new Date().getTime()}`;
                     
                     fetch(fetchUrl, { redirect: 'follow' })
                         .then(res => {
-                            // Jika Google Apps Script bagi respon HTML (biasanya kerana isu Login/Permission), kita halang awal-awal
                             const contentType = res.headers.get("content-type");
                             if (contentType && contentType.indexOf("application/json") !== -1) {
                                 return res.json();
                             } else {
-                                throw new Error("Sistem GAS tidak memulangkan format JSON. Sila semak tetapan 'Who has access: Anyone'.");
+                                throw new Error("Format tidak disokong.");
                             }
                         })
                         .then(data => {
@@ -232,17 +232,50 @@
                                 berjayaTarik = true;
                             }
                             
-                            // Info ringkas jika data Google Sheets berjaya disambung
-                            if (berjayaTarik) {
-                                console.log("Senarai nama terkini berjaya ditarik dari Google Sheets.");
+                            // SYNC LAPORAN DATA
+                            if (data && data.laporan && data.laporan.length > 0) {
+                                const storedDataRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+                                const storedData = storedDataRaw ? JSON.parse(storedDataRaw) : {};
+                                let hasNewData = false;
+
+                                // Cari data terkini (Abaikan duplikasi tarikh, sentiasa ambil yang terbaru dari cloud)
+                                data.laporan.forEach(cloudItem => {
+                                    if (cloudItem && cloudItem.tarikh) {
+                                        storedData[cloudItem.tarikh] = cloudItem;
+                                        hasNewData = true;
+                                    }
+                                });
+
+                                if (hasNewData) {
+                                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(storedData));
+                                    setSyncTrigger(prev => prev + 1); // Trigger UI refresh
+                                    setAdminData(storedData); // Trigger UI Admin
+                                }
+                            }
+                            
+                            if (isManual) {
+                                setToast({ show: true, message: 'Data berjaya disegerakkan (Sync) dari Awan!' });
+                                setTimeout(() => setToast({ show: false, message: '' }), 3000);
+                            } else if (berjayaTarik) {
+                                console.log("Data awan berjaya disegerakkan automatik.");
                             }
                         })
                         .catch(err => {
-                            console.error("Ralat memuat turun senarai nama:", err);
-                            setToast({ show: true, message: 'Gagal muat turun senarai nama. Semak URL atau tetapan GAS.' });
-                            setTimeout(() => setToast({ show: false, message: '' }), 4000);
+                            console.error("Ralat Sync:", err);
+                            if (isManual) {
+                                setToast({ show: true, message: 'Gagal segerak data dari awan. Semak tetapan pautan anda.' });
+                                setTimeout(() => setToast({ show: false, message: '' }), 4000);
+                            }
+                        })
+                        .finally(() => {
+                            if (isManual) setLoading(false);
                         });
                 }
+            };
+
+            React.useEffect(() => {
+                syncCloudData(false);
+                // eslint-disable-next-line react-hooks/exhaustive-deps
             }, []);
 
             // Admin States
@@ -355,7 +388,7 @@
                 }
             };
 
-            React.useEffect(() => { loadDataFromLocalStorage(); }, [tarikh]);
+            React.useEffect(() => { loadDataFromLocalStorage(); }, [tarikh, syncTrigger]);
 
             React.useEffect(() => {
                 if (activeTab === 'bulanan') {
@@ -979,7 +1012,10 @@
                                     <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 text-white">
                                         <div className="flex flex-col md:flex-row justify-between items-center text-center md:text-left">
                                             <div><h2 className="text-3xl font-black uppercase mb-1 flex items-center justify-center md:justify-start"><Shield className="w-8 h-8 mr-3 text-yellow-400"/> Pengurusan Data</h2><p className="text-gray-400 text-sm">Pangkalan Data Tempatan (LocalStorage)</p></div>
-                                            <div className="mt-4 md:mt-0 flex gap-2"><button onClick={handleExportData} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm"><Download className="w-4 h-4 mr-2"/> Muat Turun Data (JSON)</button></div>
+                                            <div className="mt-4 md:mt-0 flex flex-wrap justify-center md:justify-end gap-2">
+                                                <button onClick={() => syncCloudData(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm"><Activity className="w-4 h-4 mr-2"/> Segerak Awan</button>
+                                                <button onClick={handleExportData} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm"><Download className="w-4 h-4 mr-2"/> Muat Turun Data</button>
+                                            </div>
                                         </div>
                                     </Card>
 
