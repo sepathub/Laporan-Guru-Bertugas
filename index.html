@@ -159,17 +159,24 @@
         );
 
         const SimpleBarChart = ({ data, labels, color = "bg-purple-400" }) => {
-            const safeData = Array.isArray(data) ? data : [0, 0, 0, 0, 0];
+            // Pastikan data yang dibaca adalah nombor yang sah, bukan 'NaN'
+            const safeData = Array.isArray(data) ? data.map(n => isNaN(parseInt(n)) ? 0 : parseInt(n)) : [0, 0, 0, 0, 0];
             const max = Math.max(...safeData, 1);
             return (
-                <div className="flex items-end space-x-3 h-24 w-full pt-4">
-                    {safeData.map((v, i) => (
-                        <div key={i} className="flex-1 flex flex-col items-center group relative">
-                            <div className="absolute -top-8 opacity-0 group-hover:opacity-100 bg-purple-800 text-white text-xs rounded px-2 py-1 font-bold mb-1 transition-opacity">{v}</div>
-                            <div className={`w-full rounded-t-xl transition-all duration-700 ${color} opacity-80 hover:opacity-100`} style={{ height: `${(v / Math.max(max, 1)) * 100}%` }}></div>
-                            <span className="text-[10px] font-bold text-gray-400 mt-2">{labels[i]}</span>
-                        </div>
-                    ))}
+                <div className="flex items-end space-x-2 h-24 w-full pt-6">
+                    {safeData.map((v, i) => {
+                        // Berikan sekurang-kurangnya 5% ketinggian supaya jika nilai 0, tetap ada garis halus sebagai rujukan graf
+                        const hPct = Math.max((v / Math.max(max, 1)) * 100, 5); 
+                        return (
+                            <div key={i} className="flex-1 flex flex-col items-center justify-end group relative h-full">
+                                <div className="absolute -top-6 opacity-0 group-hover:opacity-100 bg-gray-800 text-white text-[10px] rounded px-2 py-1 font-bold mb-1 transition-opacity z-10">{v}</div>
+                                <div className="w-full flex-1 flex items-end">
+                                    <div className={`w-full rounded-t-xl transition-all duration-700 ${color} opacity-80 group-hover:opacity-100`} style={{ height: `${hPct}%` }}></div>
+                                </div>
+                                <span className="text-[10px] font-bold text-gray-400 mt-2">{labels[i]}</span>
+                            </div>
+                        );
+                    })}
                 </div>
             );
         };
@@ -311,7 +318,8 @@
 
             const [monthlyStats, setMonthlyStats] = React.useState({
                 peratusMurid: '0.0', muridTrend: [0, 0, 0, 0], peratusGuruHadir: '0.0', peratusGuruTidakHadir: '0.0', 
-                guruTrend: [0, 0, 0, 0], cleanPercent: 0, grade: '-', gradeText: 'Tiada Data'
+                guruTrend: [0, 0, 0, 0], cleanPercent: 0, grade: '-', gradeText: 'Tiada Data',
+                totalDisiplin: 0, totalKeluarAwal: 0, disiplinTrend: [0, 0, 0, 0], keluarAwalTrend: [0, 0, 0, 0]
             });
 
             const getWeekDates = (dateString) => {
@@ -400,6 +408,9 @@
                         let cleanScore = 0, cleanCount = 0;
                         let muridMinggu = [ {h:0, t:0}, {h:0, t:0}, {h:0, t:0}, {h:0, t:0}, {h:0, t:0} ];
                         let guruMinggu = [ {h:0, t:0}, {h:0, t:0}, {h:0, t:0}, {h:0, t:0}, {h:0, t:0} ];
+                        let kesDisiplin = 0, kesKeluarAwal = 0;
+                        let disiplinMinggu = [0, 0, 0, 0, 0];
+                        let keluarAwalMinggu = [0, 0, 0, 0, 0];
 
                         Object.keys(allData).forEach(dateStr => {
                             const d = new Date(dateStr);
@@ -425,6 +436,18 @@
                                 const gTakHadir = parseInt(dayData.kehadiranGuru?.tidakHadir || 0);
                                 tGuruHadir += gHadir; tGuruTidakHadir += gTakHadir;
                                 guruMinggu[weekIdx].h += gHadir; guruMinggu[weekIdx].t += gTakHadir;
+
+                                // KIRA JUMLAH DISIPLIN & KELUAR AWAL BULANAN
+                                if (Array.isArray(dayData.isuDisiplin)) {
+                                    const dCount = dayData.isuDisiplin.filter(isu => isu.nama || isu.isu || isu.kelas).length;
+                                    kesDisiplin += dCount;
+                                    disiplinMinggu[weekIdx] += dCount;
+                                }
+                                if (Array.isArray(dayData.muridKeluar)) {
+                                    const kCount = dayData.muridKeluar.filter(m => m.nama || m.sebab || m.kelas).length;
+                                    kesKeluarAwal += kCount;
+                                    keluarAwalMinggu[weekIdx] += kCount;
+                                }
                             }
                         });
                         
@@ -450,7 +473,9 @@
                         setMonthlyStats({
                             peratusMurid: totalMuridPercent.toFixed(1), muridTrend: mTrend.map(v => Math.round(v)),
                             peratusGuruHadir: totalGuruPercent.toFixed(1), peratusGuruTidakHadir: totalGuruTakHadirPercent.toFixed(1),
-                            guruTrend: gTrend.map(v => Math.round(v)), cleanPercent: mCleanPercent, grade, gradeText
+                            guruTrend: gTrend.map(v => Math.round(v)), cleanPercent: mCleanPercent, grade, gradeText,
+                            totalDisiplin: kesDisiplin, totalKeluarAwal: kesKeluarAwal,
+                            disiplinTrend: disiplinMinggu.slice(0,4), keluarAwalTrend: keluarAwalMinggu.slice(0,4)
                         });
                     } catch (err) { console.error("Error computing monthly stats", err); }
                 }
@@ -1478,6 +1503,21 @@
                                                 <StatCard title="Kehadiran Murid" value={`${monthlyStats.peratusMurid}%`} subtext={`Purata Bulan ${MONTHS[bulanPilihan]}`} icon={GraduationCap} colorClass="text-blue-600"><div className="mt-2"><p className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Trend Mingguan (M1-M4)</p><SimpleBarChart data={monthlyStats.muridTrend} labels={['M1','M2','M3','M4']} color="bg-blue-400" /></div></StatCard>
                                                 <StatCard title="Statistik Guru" value={`${monthlyStats.peratusGuruHadir}%`} subtext={`Hadir (${monthlyStats.peratusGuruTidakHadir}% Tidak Hadir)`} icon={Users} colorClass="text-purple-600"><div className="mt-2"><p className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Trend Mingguan (M1-M4)</p><SimpleBarChart data={monthlyStats.guruTrend} labels={['M1', 'M2', 'M3', 'M4']} color="bg-purple-400" /></div></StatCard>
                                                 <StatCard title="Gred Kebersihan" value={monthlyStats.grade} subtext={monthlyStats.gradeText} icon={CheckCircle} colorClass="text-emerald-600"><div className="flex justify-center py-2"><SimpleDonutChart percentage={monthlyStats.cleanPercent} label={`${Math.round(monthlyStats.cleanPercent)}%`} color="text-emerald-500" /></div></StatCard>
+                                            </div>
+
+                                            <div className="grid md:grid-cols-2 gap-6">
+                                                <StatCard title="Isu Disiplin" value={monthlyStats.totalDisiplin} subtext={`Jumlah Kes Bulan ${MONTHS[bulanPilihan]}`} icon={AlertTriangle} colorClass="text-amber-600">
+                                                    <div className="mt-2">
+                                                        <p className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Trend Mingguan (M1-M4)</p>
+                                                        <SimpleBarChart data={monthlyStats.disiplinTrend} labels={['M1','M2','M3','M4']} color="bg-amber-400" />
+                                                    </div>
+                                                </StatCard>
+                                                <StatCard title="Murid Keluar Awal" value={monthlyStats.totalKeluarAwal} subtext={`Jumlah Murid Bulan ${MONTHS[bulanPilihan]}`} icon={LogOut} colorClass="text-rose-600">
+                                                    <div className="mt-2">
+                                                        <p className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Trend Mingguan (M1-M4)</p>
+                                                        <SimpleBarChart data={monthlyStats.keluarAwalTrend} labels={['M1','M2','M3','M4']} color="bg-rose-400" />
+                                                    </div>
+                                                </StatCard>
                                             </div>
                                         </div>
                                     )}
